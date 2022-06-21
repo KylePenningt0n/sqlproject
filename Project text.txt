@@ -1,0 +1,169 @@
+Source for job scheduling: https://www.pgadmin.org/docs/pgadmin4/6.3/pgagent_jobs.html
+
+
+Question being asked:
+What movies were never returned and who has them?
+
+Part A
+1.) The data being used in this report is from a dvd rental companies database.
+The question that I am going to answer in this report is What films were never
+returned to the store and who last owned them?
+
+2.)The Tables I will be using to answer the question are the film,inventory,rental, and
+the customer tables.
+
+3.)The specific columns in the detailed section are the rental id, film title, rental date,
+return date, customer's first name, customer's last name, their phone and their email.
+
+The summary table will contain the film title, rental date, the film's status(if it was
+returned), and the customer's name,phone and email.
+
+4.) The return_date column from the rental database has to be transformed to text so
+it is easier to see who has not returned their movie. The summary table returns every
+customer who has not returned their movie. The customer's first and last name will
+be combined as well.
+
+5.)The detailed section of the report may be used to see who has rented which movie
+and will give the owner an idea of what movies the customer likes and when they have
+rented them. The summary section is showing which customer has which movie.
+
+6.)This data should be refreshed everyday if the company has a limit of days the 
+customer can rent a movie.
+
+B.) --Creates the detialed table
+DROP TABLE IF EXISTS detailed;
+CREATE TABLE detailed (
+	Rental_ID int,
+	Film_Title varchar(255),
+	Rental_Date timestamp,
+	Return_Date timestamp,
+	First_Name varchar(45),
+	Last_Name varchar(45),
+	Phone_Number varchar(20),
+	Email varchar(50));
+
+--shows the empty detailed table
+SELECT * FROM detailed;
+
+--Creates the summary table
+DROP TABLE IF EXISTS summary;
+CREATE TABLE summary (
+	Film_Title varchar(255),
+	Rental_Date timestamp,
+	Rental_Status text,
+	Customer_Name varchar(90),
+	Phone_Number varchar(20),
+	Email varchar(50));
+-- shows the empty table
+SELECT * FROM summary;
+
+C.) --Extracts raw data for detailed section
+INSERT INTO detailed(
+	Rental_ID,
+	Film_Title,
+	Rental_Date,
+	Return_Date,
+	First_Name,
+	Last_Name,
+	Phone_Number,
+	Email)
+SELECT DISTINCT
+	r.rental_id,
+	f.title,
+	r.rental_date,r.return_date,
+	cu.first_name,cu.last_name,
+	ad.phone,
+	cu.email
+FROM film AS f
+INNER JOIN inventory AS i
+	ON f.film_id = i.film_id
+INNER JOIN rental AS r
+	ON i.inventory_id = r.inventory_id
+INNER JOIN customer AS cu
+	ON r.customer_id = cu.customer_id
+INNER JOIN address AS ad
+	ON cu.address_id = ad.address_id;
+
+--shows detailed table
+SELECT * FROM detailed
+ORDER BY 2, 1 DESC;
+
+--verifys data from table
+SELECT * FROM rental
+ORDER BY return_date DESC;
+
+D.) Creates functino for summary table with data transformation( using concat and case clause)
+-- delete function DROP FUNCTION Summary_Function()
+CREATE FUNCTION Summary_Function()
+RETURNS TRIGGER AS $$
+BEGIN
+DELETE FROM summary;
+INSERT INTO summary(
+	SELECT DISTINCT
+		Film_Title,
+		Rental_Date,
+		CASE WHEN Return_Date IS NULL
+			THEN 'NEVER RETURNED'
+			ELSE 'WAS RETURNED'
+			END AS Rental_Status,
+		CONCAT (First_Name, ' ',Last_Name),
+		Phone_Number,
+		Email
+		FROM detailed
+		Order by 1,5 DESC);
+RETURN NEW;
+END; $$ LANGUAGE PLPGSQL;
+
+E.) --CREATE TRIGGER on detailed table
+CREATE TRIGGER Update_Summary
+AFTER INSERT ON detailed
+FOR EACH STATEMENT
+EXECUTE PROCEDURE Summary_Function();
+
+F.)Creating a store procedure to refresh both detailed and summary tables
+This should be run every morning
+an external pgagent application can be used as a job scheduling tool
+
+-- Deletes refresh tables procedure
+-- DROP PROCEDURE Refresh_Tables()
+CREATE PROCEDURE Refresh_Tables()
+LANGUAGE PLPGSQL
+AS $$
+BEGIN
+DELETE FROM detailed;
+INSERT INTO detailed(
+	Rental_ID,
+	Film_Title,
+	Rental_Date,
+	Return_Date,
+	First_Name,
+	Last_Name,
+	Phone_Number,
+	Email)
+SELECT DISTINCT
+	r.rental_id,
+	f.title,
+	r.rental_date,r.return_date,
+	cu.first_name,cu.last_name,
+	ad.phone,
+	cu.email
+FROM film AS f
+INNER JOIN inventory AS i
+	ON f.film_id = i.film_id
+INNER JOIN rental AS r
+	ON i.inventory_id = r.inventory_id
+INNER JOIN customer AS cu
+	ON r.customer_id = cu.customer_id
+INNER JOIN address AS ad
+	ON cu.address_id = ad.address_id;
+END; $$;
+
+--to refresh tables
+--CALL Refresh_Tables();
+
+--to view tables
+--SELECT * FROM detailed;
+
+--SELECT * FROM summary WHERE Rental_Status = 'NEVER RETURNED';
+
+
